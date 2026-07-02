@@ -6,7 +6,7 @@ contract MerkleBounty {
         address owner;
         string prompt;
         uint256 reward;
-        uint256 submissionDeadline;
+        uint256 commitDeadline;
         uint256 revealDeadline;
         bool finalized;
         address winner;
@@ -20,7 +20,7 @@ contract MerkleBounty {
         address owner;
         string prompt;
         uint256 reward;
-        uint256 submissionDeadline;
+        uint256 commitDeadline;
         uint256 revealDeadline;
         bool finalized;
         address winner;
@@ -41,13 +41,13 @@ contract MerkleBounty {
         _;
     }
 
-    modifier onlySubmissionPhase(uint256 id) {
-        require(block.timestamp <= challenges[id].submissionDeadline, "Submission phase ended");
+    modifier onlyCommitPhase(uint256 id) {
+        require(block.timestamp <= challenges[id].commitDeadline, "Commit phase ended");
         _;
     }
 
     modifier onlyRevealPhase(uint256 id) {
-        require(block.timestamp > challenges[id].submissionDeadline, "Not reveal phase");
+        require(block.timestamp > challenges[id].commitDeadline, "Not reveal phase");
         require(block.timestamp <= challenges[id].revealDeadline, "Reveal phase ended");
         _;
     }
@@ -69,11 +69,11 @@ contract MerkleBounty {
 
     function createChallenge(
         string calldata prompt,
-        uint256 submissionDeadline,
+        uint256 commitDeadline,
         uint256 revealDuration
     ) external payable {
         require(msg.value > 0, "Reward must be > 0 RIT");
-        require(submissionDeadline > block.timestamp, "Deadline must be in future");
+        require(commitDeadline > block.timestamp, "Deadline must be in future");
         require(revealDuration > 0, "Reveal duration must be > 0");
 
         uint256 id = challengeCounter++;
@@ -81,8 +81,8 @@ contract MerkleBounty {
         c.owner = msg.sender;
         c.prompt = prompt;
         c.reward = msg.value;
-        c.submissionDeadline = submissionDeadline;
-        c.revealDeadline = submissionDeadline + revealDuration;
+        c.commitDeadline = commitDeadline;
+        c.revealDeadline = commitDeadline + revealDuration;
 
         emit ChallengeCreated(id, msg.sender, msg.value);
     }
@@ -92,7 +92,7 @@ contract MerkleBounty {
         bytes32 answerHash
     ) external 
         challengeExists(id)
-        onlySubmissionPhase(id)
+        onlyCommitPhase(id)
     {
         Challenge storage c = challenges[id];
         require(c.answerHash[msg.sender] == 0, "Already committed");
@@ -103,7 +103,6 @@ contract MerkleBounty {
         emit AnswerCommitted(id, msg.sender, answerHash);
     }
 
-    // setMerkleRoot can now be called during reveal phase
     function setMerkleRoot(uint256 id, bytes32 merkleRoot) external 
         challengeExists(id)
         onlyOwner(id)
@@ -185,7 +184,7 @@ contract MerkleBounty {
             owner: c.owner,
             prompt: c.prompt,
             reward: c.reward,
-            submissionDeadline: c.submissionDeadline,
+            commitDeadline: c.commitDeadline,
             revealDeadline: c.revealDeadline,
             finalized: c.finalized,
             winner: c.winner,

@@ -13,7 +13,7 @@ This contract uses **merkle tree verification** to enable efficient batch valida
 Gas-efficient verification, privacy-preserving, and enables efficient batch validation.
 
 ## Contract Address (Ritual Testnet)
-0x65a340FA211c84099aaD357fE7bA7Af401BB70B8
+0xA70F931dFE9Cc1922391a21D9DB788F4489BF7C1
 
 ## Network
 Ritual Chain Testnet (ID: 1979)

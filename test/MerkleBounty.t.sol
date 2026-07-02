@@ -22,27 +22,38 @@ contract MerkleBountyTest is Test {
     bytes32[] aliceProof;
     bytes32[] bobProof;
 
-    // Helper to compute merkle root from leaves (matches contract's verifyMerkleProof)
-    function computeMerkleRoot(bytes32[] memory leaves) internal pure returns (bytes32) {
-        if (leaves.length == 0) return bytes32(0);
-        if (leaves.length == 1) return leaves[0];
+    // Simple merkle proof verification for 2 leaves
+    function buildMerkleProof() internal {
+        // Compute leaves
+        bytes32 leaf1 = keccak256(abi.encodePacked(alice, aliceHash));
+        bytes32 leaf2 = keccak256(abi.encodePacked(bob, bobHash));
         
-        bytes32[] memory newLeaves = new bytes32[]((leaves.length + 1) / 2);
-        for (uint i = 0; i < newLeaves.length; i++) {
-            if (i * 2 + 1 < leaves.length) {
-                // Sort the pair before hashing (matches contract's ordering)
-                bytes32 left = leaves[i * 2];
-                bytes32 right = leaves[i * 2 + 1];
-                if (left < right) {
-                    newLeaves[i] = keccak256(abi.encodePacked(left, right));
-                } else {
-                    newLeaves[i] = keccak256(abi.encodePacked(right, left));
-                }
-            } else {
-                newLeaves[i] = leaves[i * 2];
-            }
+        // Sort leaves (needed for consistent hashing)
+        bytes32[2] memory sortedLeaves;
+        if (leaf1 < leaf2) {
+            sortedLeaves[0] = leaf1;
+            sortedLeaves[1] = leaf2;
+        } else {
+            sortedLeaves[0] = leaf2;
+            sortedLeaves[1] = leaf1;
         }
-        return computeMerkleRoot(newLeaves);
+        
+        // Compute root
+        merkleRoot = keccak256(abi.encodePacked(sortedLeaves[0], sortedLeaves[1]));
+        
+        // Build proofs - each proof contains the sibling leaf
+        aliceProof = new bytes32[](1);
+        bobProof = new bytes32[](1);
+        
+        if (leaf1 < leaf2) {
+            // Alice's proof is leaf2, Bob's proof is leaf1
+            aliceProof[0] = leaf2;
+            bobProof[0] = leaf1;
+        } else {
+            // Alice's proof is leaf2, Bob's proof is leaf1 (swapped)
+            aliceProof[0] = leaf2;
+            bobProof[0] = leaf1;
+        }
     }
 
     function setUp() public {
@@ -53,36 +64,18 @@ contract MerkleBountyTest is Test {
         aliceHash = keccak256(abi.encodePacked(aliceAnswer, aliceSalt));
         bobHash = keccak256(abi.encodePacked(bobAnswer, bobSalt));
 
-        // Build merkle tree leaves
-        bytes32[] memory leaves = new bytes32[](2);
-        leaves[0] = keccak256(abi.encodePacked(alice, aliceHash));
-        leaves[1] = keccak256(abi.encodePacked(bob, bobHash));
-
-        // Sort leaves before building root (matches contract ordering)
-        if (leaves[0] < leaves[1]) {
-            merkleRoot = keccak256(abi.encodePacked(leaves[0], leaves[1]));
-        } else {
-            merkleRoot = keccak256(abi.encodePacked(leaves[1], leaves[0]));
-        }
-
-        // Build proofs: for alice, proof is the sibling leaf (leaves[1])
-        aliceProof = new bytes32[](1);
-        aliceProof[0] = leaves[1];
-
-        // For bob, proof is the sibling leaf (leaves[0])
-        bobProof = new bytes32[](1);
-        bobProof[0] = leaves[0];
+        buildMerkleProof();
 
         bounty = new MerkleBounty();
         vm.startPrank(owner);
-        uint256 submissionDeadline = block.timestamp + 1 days;
-        bounty.createChallenge{value: reward}("Test", submissionDeadline, 2 days);
+        uint256 commitDeadline = block.timestamp + 1 days;
+        bounty.createChallenge{value: reward}("Test", commitDeadline, 2 days);
         challengeId = 0;
         vm.stopPrank();
     }
 
     function testFullFlow() public {
-        // 1. Commit answers
+        // Commit
         vm.startPrank(alice);
         bounty.commitAnswer(challengeId, aliceHash);
         vm.stopPrank();
@@ -91,15 +84,15 @@ contract MerkleBountyTest is Test {
         bounty.commitAnswer(challengeId, bobHash);
         vm.stopPrank();
 
-        // 2. Move to reveal phase
+        // Move to reveal phase
         vm.warp(block.timestamp + 1 days + 1);
-        
-        // 3. Set merkle root
+
+        // Set merkle root
         vm.startPrank(owner);
         bounty.setMerkleRoot(challengeId, merkleRoot);
         vm.stopPrank();
 
-        // 4. Reveal with proofs
+        // Reveal with proofs
         vm.startPrank(alice);
         bounty.revealAndVerify(challengeId, aliceAnswer, aliceSalt, aliceProof);
         vm.stopPrank();
@@ -108,10 +101,10 @@ contract MerkleBountyTest is Test {
         bounty.revealAndVerify(challengeId, bobAnswer, bobSalt, bobProof);
         vm.stopPrank();
 
-        // 5. Move to after reveal phase
+        // Move to after reveal phase
         vm.warp(block.timestamp + 2 days + 1);
 
-        // 6. Finalize winner
+        // Finalize winner
         vm.startPrank(owner);
         bounty.finalizeWinner(challengeId, bob);
         vm.stopPrank();
@@ -125,7 +118,6 @@ contract MerkleBountyTest is Test {
     function testCannotRevealBeforeDeadline() public {
         vm.startPrank(alice);
         bounty.commitAnswer(challengeId, aliceHash);
-        
         vm.warp(block.timestamp + 12 hours);
         vm.expectRevert("Not reveal phase");
         bounty.revealAndVerify(challengeId, aliceAnswer, aliceSalt, aliceProof);
@@ -162,6 +154,27 @@ contract MerkleBountyTest is Test {
 
         vm.expectRevert("Invalid merkle proof");
         bounty.revealAndVerify(challengeId, aliceAnswer, aliceSalt, invalidProof);
+        vm.stopPrank();
+    }
+
+    function testOnlyOwnerCanFinalize() public {
+        vm.startPrank(alice);
+        bounty.commitAnswer(challengeId, aliceHash);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.startPrank(owner);
+        bounty.setMerkleRoot(challengeId, merkleRoot);
+        vm.stopPrank();
+
+        vm.startPrank(alice);
+        bounty.revealAndVerify(challengeId, aliceAnswer, aliceSalt, aliceProof);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 2 days + 1);
+        vm.startPrank(alice);
+        vm.expectRevert("Not challenge owner");
+        bounty.finalizeWinner(challengeId, alice);
         vm.stopPrank();
     }
 }

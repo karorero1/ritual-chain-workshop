@@ -4,3 +4,4 @@
 - Cannot reveal before deadline (reverts)
 - Cannot reveal without merkle root (reverts)
 - Invalid merkle proof (reverts)
+- Only owner can finalize (reverts for others)
